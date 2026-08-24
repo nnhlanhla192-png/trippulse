@@ -1,4 +1,4 @@
-TripPulse 🧭
+TripPulse
 
 A serverless community safety check-in app, built entirely on AWS.
 
