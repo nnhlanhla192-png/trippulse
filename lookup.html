@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripPulse</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Trip<span>Pulse</span></h1>
+  <p>Check the status of any trip using its ID.</p>
+</header>
+
+<nav class="nav">
+  <a href="index.html">Start a trip</a>
+  <a href="trips.html">My trips</a>
+  <a href="lookup.html" aria-current="page">Look up</a>
+</nav>
+
+<main>
+  <section class="card">
+    <h2>Look up a trip</h2>
+    <p class="sub">Paste a trip ID to see its current status.</p>
+    <form id="lookup-form">
+      <label for="lookup-id">Trip ID</label>
+      <input id="lookup-id" required autocomplete="off" spellcheck="false">
+      <div class="row"><button class="btn" type="submit">Look up</button></div>
+    </form>
+    <div id="lookup-result" aria-live="polite"></div>
+  </section>
+</main>
+
+<footer>
+  Connected to <span id="api-label"></span>. Times are shown in your local time zone.
+</footer>
+
+<script src="app.js"></script>
+<script>initLookupPage();</script>
+</body>
+</html>

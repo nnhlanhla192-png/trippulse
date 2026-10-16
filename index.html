@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripPulse</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <h1>Trip<span>Pulse</span></h1>
+  <p>Start a trip and check in when you arrive. If you don't, we email your contact.</p>
+</header>
+
+<nav class="nav">
+  <a href="index.html" aria-current="page">Start a trip</a>
+  <a href="trips.html">My trips</a>
+  <a href="lookup.html">Look up</a>
+</nav>
+
+<main>
+  <section class="card">
+    <h2>Start a trip</h2>
+    <p class="sub">Tell TripPulse who to alert and when you expect to arrive.</p>
+    <form id="trip-form">
+      <div class="grid2">
+        <div>
+          <label for="userName">Your name</label>
+          <input id="userName" required maxlength="80" autocomplete="name">
+        </div>
+        <div>
+          <label for="contactName">Contact's name</label>
+          <input id="contactName" required maxlength="80">
+        </div>
+      </div>
+      <label for="contactInfo">Contact's email or phone</label>
+      <input id="contactInfo" required maxlength="120">
+      <label for="arrival">Expected arrival</label>
+      <input id="arrival" type="datetime-local" required>
+      <div class="chips" id="chips"></div>
+      <p class="hint" id="arrival-hint"></p>
+      <div class="row">
+        <button class="btn primary" id="start-btn" type="submit">Start trip</button>
+      </div>
+      <div id="start-msg" aria-live="polite"></div>
+    </form>
+  </section>
+</main>
+
+<footer>
+  Connected to <span id="api-label"></span>. Times are shown in your local time zone.
+</footer>
+
+<script src="app.js"></script>
+<script>initStartPage();</script>
+</body>
+</html>
