@@ -1,0 +1,4 @@
+# Tools used only for testing (not needed in AWS)
+boto3
+pytest
+moto[dynamodb,sns]
