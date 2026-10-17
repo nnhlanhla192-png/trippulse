@@ -107,3 +107,6 @@ input:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
 dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 14px 0 0; font-size: 14px; }
 dt { color: var(--muted); }
 dd { margin: 0; }
+/* map on the Look up page */
+.loc { margin-top: 14px; }
+.map { display: block; width: 100%; height: 280px; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; }

@@ -161,22 +161,113 @@ function initStartPage() {
 /* ---------- page: My trips (trips.html) ---------- */
 
 function initTripsPage() {
+  // Only one trip can share its location at a time: { tripId, watchId, lastSentAt, lastSent }
+  let share = null;
+
+  function stopSharing() {
+    if (share) {
+      navigator.geolocation.clearWatch(share.watchId);
+      share = null;
+    }
+    render();
+  }
+
+  // Stop sharing if the trip we are sharing for has ended
+  function stopSharingFor(tripId) {
+    if (share && share.tripId === tripId) stopSharing();
+  }
+
+  function startSharing(tripId) {
+    if (!navigator.geolocation) {
+      say($('list-msg'), 'This browser cannot share location.', 'error');
+      return;
+    }
+    if (window.isSecureContext === false) {
+      say($('list-msg'), 'Location only works on a secure page (https, or localhost). Open the page from your hosted link or a local server.', 'error');
+      return;
+    }
+    stopSharing();
+    say($('list-msg'), '');
+    share = { tripId, watchId: null, lastSentAt: 0, lastSent: null };
+    share.watchId = navigator.geolocation.watchPosition(onFix, onGeoError, {
+      enableHighAccuracy: true, maximumAge: 10000, timeout: 20000,
+    });
+    render();
+  }
+
+  // The phone or browser calls this every time it finds a new position.
+  async function onFix(pos) {
+    if (!share) return;
+    const now = Date.now();
+    if (now - share.lastSentAt < 15000) return;   // send at most once every 15 seconds
+    share.lastSentAt = now;
+    const tripId = share.tripId;
+    try {
+      await api('/trips/' + encodeURIComponent(tripId) + '/location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        }),
+      });
+      if (share && share.tripId === tripId) { share.lastSent = new Date(); render(); }
+    } catch (err) {
+      if (/no longer active/i.test(err.message)) {
+        stopSharingFor(tripId);
+        say($('list-msg'), 'That trip has ended, so location sharing stopped.', 'ok');
+      } else {
+        say($('list-msg'), err.message, 'error');
+      }
+    }
+  }
+
+  function onGeoError(err) {
+    if (err.code === 1) {
+      stopSharing();
+      say($('list-msg'), 'Location permission was blocked. Allow location for this page in your browser settings, then try again.', 'error');
+    } else {
+      say($('list-msg'), 'Could not get a location fix yet. Check your GPS or signal. We will keep trying.', 'error');
+    }
+  }
+
   function tripCard(t) {
     const s = STATUS[t.status] || { label: 'Unknown', cls: 'grey' };
+    const isActive = t.status === 'in_progress' || t.status === 'alert_sent';
+    const sharingThis = share && share.tripId === t.tripId;
     const actions = el('div', { class: 'row' });
-    if (t.status === 'in_progress' || t.status === 'alert_sent') {
+
+    if (isActive) {
       actions.append(el('button', { class: 'btn primary', type: 'button', onclick: (e) => checkIn(t.tripId, e.currentTarget) }, "I've arrived safely"));
+      actions.append(sharingThis
+        ? el('button', { class: 'btn', type: 'button', onclick: () => stopSharing() }, 'Stop sharing location')
+        : el('button', { class: 'btn', type: 'button', onclick: () => startSharing(t.tripId) }, 'Share my location'));
     }
-    actions.append(el('button', { class: 'btn', type: 'button', onclick: (e) => copyId(t.tripId, e.currentTarget) }, 'Copy ID'));
+    actions.append(el('button', { class: 'btn', type: 'button', onclick: (e) => copyText(trackingLink(t.tripId), e.currentTarget, 'Copy tracking link') }, 'Copy tracking link'));
+    actions.append(el('button', { class: 'btn', type: 'button', onclick: (e) => copyText(t.tripId, e.currentTarget, 'Copy ID') }, 'Copy ID'));
     actions.append(el('button', { class: 'btn ghost', type: 'button', onclick: () => removeTrip(t.tripId) }, 'Remove'));
 
-    return el('article', { class: 'trip' },
+    const card = el('article', { class: 'trip' },
       el('div', { class: 'trip-head' },
         el('strong', {}, t.userName),
         el('span', { class: 'badge ' + s.cls }, s.label)),
       el('p', { class: 'muted' }, `Alerts ${t.contactName} if you haven't checked in by ${fmt(t.expectedArrivalTime)}.`),
-      el('code', { class: 'id' }, t.tripId),
-      actions);
+      el('code', { class: 'id' }, t.tripId));
+
+    if (sharingThis) {
+      const when = share.lastSent
+        ? 'Last sent at ' + share.lastSent.toLocaleTimeString([], { timeStyle: 'short' }) + '.'
+        : 'Waiting for your first location...';
+      card.append(el('p', { class: 'msg ok' },
+        `Sharing your location with anyone who has this trip's tracking link. ${when} Keep this page open.`));
+    }
+    card.append(actions);
+    return card;
+  }
+
+  function trackingLink(tripId) {
+    return new URL('lookup.html?trip=' + encodeURIComponent(tripId), window.location.href).href;
   }
 
   function render() {
@@ -202,6 +293,7 @@ function initTripsPage() {
         if (/not found/i.test(err.message)) t.status = 'missing';
         // any other error (like being offline): keep the last known status
       }
+      if (t.status === 'arrived' || t.status === 'missing') stopSharingFor(t.tripId);
     }));
     write(TRIPS_KEY, trips);
     render();
@@ -215,9 +307,10 @@ function initTripsPage() {
       await api('/trips/' + encodeURIComponent(tripId), { method: 'PATCH' });
       const t = trips.find((x) => x.tripId === tripId);
       if (t) t.status = 'arrived';
+      stopSharingFor(tripId);
       write(TRIPS_KEY, trips);
       render();
-      say($('list-msg'), 'Checked in. No alert will be sent for that trip.', 'ok');
+      say($('list-msg'), 'Checked in. No alert will be sent, and your shared location was deleted.', 'ok');
     } catch (err) {
       button.disabled = false;
       button.textContent = "I've arrived safely";
@@ -225,17 +318,18 @@ function initTripsPage() {
     }
   }
 
-  async function copyId(tripId, button) {
+  async function copyText(text, button, originalLabel) {
     try {
-      await navigator.clipboard.writeText(tripId);
+      await navigator.clipboard.writeText(text);
       button.textContent = 'Copied';
-      setTimeout(() => { button.textContent = 'Copy ID'; }, 1500);
+      setTimeout(() => { button.textContent = originalLabel; }, 1500);
     } catch {
-      say($('list-msg'), 'Could not copy automatically. Select the ID and copy it by hand.', 'error');
+      say($('list-msg'), 'Could not copy automatically. Select the text and copy it by hand.', 'error');
     }
   }
 
   function removeTrip(tripId) {
+    stopSharingFor(tripId);
     trips = trips.filter((t) => t.tripId !== tripId);
     write(TRIPS_KEY, trips);
     render();
@@ -247,28 +341,106 @@ function initTripsPage() {
   refreshAll();
 }
 
-/* ---------- page: Look up a trip (lookup.html) ---------- */
+/* ---------- page: Look up / track a trip (lookup.html) ---------- */
 
 function initLookupPage() {
-  $('lookup-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const out = $('lookup-result');
-    const id = $('lookup-id').value.trim();
-    out.replaceChildren();
-    if (!id) return;
+  const out = $('lookup-result');
+  let timer = null;       // checks the trip again every 10 seconds
+  let view = null;        // what is on screen right now: { key, agoEl }
+
+  // "just now", "3 min ago", "2 h ago"
+  function ago(iso) {
+    const secs = Math.max(0, Math.round((Date.now() - parseUtc(iso)) / 1000));
+    if (secs < 60) return 'just now';
+    if (secs < 3600) return Math.round(secs / 60) + ' min ago';
+    return Math.round(secs / 3600) + ' h ago';
+  }
+
+  function validLocation(loc) {
+    return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
+  }
+
+  function mapBlock(loc) {
+    const d = 0.004; // how much of the map to show around the point
+    const src = 'https://www.openstreetmap.org/export/embed.html?bbox='
+      + [loc.lng - d, loc.lat - d, loc.lng + d, loc.lat + d].map((n) => +n.toFixed(5)).join(',')
+      + '&layer=mapnik&marker=' + loc.lat + ',' + loc.lng;
+    const link = 'https://www.google.com/maps?q=' + loc.lat + ',' + loc.lng;
+    return [
+      el('iframe', { class: 'map', src, title: 'Map of the last known location', loading: 'lazy' }),
+      el('p', { class: 'muted' }, el('a', { href: link, target: '_blank', rel: 'noopener' }, 'Open in Google Maps')),
+    ];
+  }
+
+  function show(t) {
+    const loc = validLocation(t.lastLocation) ? t.lastLocation : null;
+    // Only rebuild the screen when something important changed (stops the map flickering)
+    const key = [t.status, loc && loc.lat, loc && loc.lng].join('|');
+    if (view && view.key === key) {
+      if (view.agoEl && loc) view.agoEl.textContent = ago(loc.at);
+      return;
+    }
+
+    const s = STATUS[t.status] || { label: t.status, cls: 'grey' };
+    out.replaceChildren(el('dl', {},
+      el('dt', {}, 'Traveler'),     el('dd', {}, t.userName),
+      el('dt', {}, 'Alerts'),       el('dd', {}, t.contactName),
+      el('dt', {}, 'Started'),      el('dd', {}, fmt(t.startTime)),
+      el('dt', {}, 'Expected by'),  el('dd', {}, fmt(t.expectedArrivalTime)),
+      el('dt', {}, 'Status'),       el('dd', {}, el('span', { class: 'badge ' + s.cls }, s.label))));
+
+    const box = el('div', { class: 'loc' });
+    let agoEl = null;
+    if (loc) {
+      agoEl = el('span', {}, ago(loc.at));
+      const acc = loc.accuracy ? ` (accurate to about ${Math.round(loc.accuracy)} m)` : '';
+      box.append(el('p', { class: 'muted' }, 'Last location update: ', agoEl, acc));
+      mapBlock(loc).forEach((n) => box.append(n));
+    } else if (t.status === 'arrived') {
+      box.append(el('p', { class: 'muted' }, 'Arrived safely. Location sharing has ended and the saved location was deleted.'));
+    } else {
+      box.append(el('p', { class: 'muted' }, 'No location shared yet. This page checks again every 10 seconds.'));
+    }
+    out.append(box);
+    view = { key, agoEl };
+  }
+
+  async function lookup(id) {
     try {
       const t = await api('/trips/' + encodeURIComponent(id));
-      const s = STATUS[t.status] || { label: t.status, cls: 'grey' };
-      out.append(el('dl', {},
-        el('dt', {}, 'Traveler'),     el('dd', {}, t.userName),
-        el('dt', {}, 'Alerts'),       el('dd', {}, t.contactName),
-        el('dt', {}, 'Started'),      el('dd', {}, fmt(t.startTime)),
-        el('dt', {}, 'Expected by'),  el('dd', {}, fmt(t.expectedArrivalTime)),
-        el('dt', {}, 'Status'),       el('dd', {}, el('span', { class: 'badge ' + s.cls }, s.label))));
+      show(t);
+      if (t.status === 'arrived') stopPolling();
     } catch (err) {
+      stopPolling();
+      view = null;
       say(out, err.message, 'error');
     }
+  }
+
+  function stopPolling() {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  function begin(id) {
+    stopPolling();
+    view = null;
+    out.replaceChildren();
+    lookup(id);
+    timer = setInterval(() => lookup(id), 10000);
+  }
+
+  $('lookup-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const id = $('lookup-id').value.trim();
+    if (id) begin(id);
   });
+
+  // A tracking link looks like lookup.html?trip=THE-TRIP-ID
+  const fromLink = new URLSearchParams(window.location.search).get('trip');
+  if (fromLink) {
+    $('lookup-id').value = fromLink;
+    begin(fromLink);
+  }
 }
 
 /* ---------- footer (same on every page) ---------- */
