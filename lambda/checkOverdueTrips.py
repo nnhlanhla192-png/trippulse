@@ -58,6 +58,17 @@ def lambda_handler(event, context):
                 f"Contact: {trip['contactName']} ({trip['contactPhoneOrEmail']})"
             )
 
+            # If the traveler was sharing their location, add the last known
+            # position to the alert so the contact knows where to start looking.
+            location = trip.get('lastLocation')
+            if location:
+                message += (
+                    f"\nLast known location: https://www.google.com/maps?q={location['lat']},{location['lng']}"
+                    f"\nLocation updated at: {location['at']} (UTC)"
+                )
+            else:
+                message += "\nNo location was shared for this trip."
+
             sns.publish(
                 TopicArn=SNS_TOPIC_ARN,
                 Message=message,

@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Secrets: never commit these
+credentials.csv
+*accessKeys*.csv
+.aws/
+.env

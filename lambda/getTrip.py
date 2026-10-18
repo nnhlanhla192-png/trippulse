@@ -1,9 +1,18 @@
 import json
 import boto3
+from decimal import Decimal
 
 # Connect to DynamoDB and point to our Trips table
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('Trips')
+
+
+def to_json(value):
+    # DynamoDB gives numbers back as Decimal, and json.dumps does not understand
+    # Decimal. This turns each one into a normal number first.
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(f'Cannot convert {type(value)} to JSON')
 
 
 def lambda_handler(event, context):
@@ -46,5 +55,5 @@ def lambda_handler(event, context):
             'Access-Control-Allow-Headers': 'Content-Type',
             'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS'
         },
-        'body': json.dumps(trip)
+        'body': json.dumps(trip, default=to_json)
     }
