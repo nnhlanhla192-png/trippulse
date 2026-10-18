@@ -1,6 +1,9 @@
 import json
 import boto3
 from datetime import datetime, timezone
+import os
+import re
+from botocore.exceptions import ClientError
 
 # Connect to DynamoDB and point to our Trips table
 dynamodb = boto3.resource('dynamodb')
@@ -8,9 +11,63 @@ table = dynamodb.Table('Trips')
 
 # Connect to SNS, the service we use to send alert notifications
 sns = boto3.client('sns')
+ses = boto3.client('ses')
 
 # The SNS "topic" is the notification channel the alert emails go through
 SNS_TOPIC_ARN = 'arn:aws:sns:eu-north-1:544795558109:TripPulseAlerts'
+
+# The address contact emails are sent FROM. It must be verified in Amazon SES.
+# It lives in an environment variable on the Lambda function, not in the code.
+# If it is not set, contact emails are simply switched off.
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
+
+# A simple check that a contact looks like an email address (and not a phone number)
+EMAIL_PATTERN = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def email_the_contact(trip):
+    """
+    Emails the contact typed on the trip. Returns True if an email was sent.
+    It never raises an error: if the email fails, the other alerts must still go out.
+    """
+    contact = trip['contactPhoneOrEmail'].strip()
+    if not SENDER_EMAIL or not EMAIL_PATTERN.match(contact):
+        return False
+
+    location = trip.get('lastLocation')
+    if location:
+        where = (
+            f"Their last known location is: https://www.google.com/maps?q={location['lat']},{location['lng']}\n"
+            f"(updated at {location['at']} UTC)"
+        )
+    else:
+        where = "They did not share their location."
+
+    text = (
+        f"Hi {trip['contactName']},\n\n"
+        f"{trip['userName']} said they would arrive by {trip['expectedArrivalTime']} (UTC) "
+        f"and has not checked in yet.\n\n"
+        f"{where}\n\n"
+        f"Please try to reach {trip['userName']}. If you cannot reach them and you are worried "
+        f"about their safety, contact the police on 10111 (or 112 from a mobile phone).\n\n"
+        f"This message was sent automatically by TripPulse."
+    )
+
+    try:
+        ses.send_email(
+            Source=SENDER_EMAIL,
+            Destination={'ToAddresses': [contact]},
+            Message={
+                'Subject': {'Data': f"TripPulse alert: {trip['userName']} has not checked in"},
+                'Body': {'Text': {'Data': text}},
+            },
+        )
+        return True
+    except ClientError as error:
+        # For example: the address is not verified while SES is still in sandbox mode.
+        # This message shows up in the CloudWatch logs.
+        print(f"Could not email {contact}: {error}")
+        return False
 
 
 def lambda_handler(event, context):
@@ -35,6 +92,7 @@ def lambda_handler(event, context):
     )
 
     overdue_trips = []
+    emailed = 0
 
     # Check each in-progress trip to see if it's overdue
     for trip in response['Items']:
@@ -50,6 +108,10 @@ def lambda_handler(event, context):
                 ExpressionAttributeNames={'#s': 'status'},
                 ExpressionAttributeValues={':status': 'alert_sent'}
             )
+
+            # Email the contact typed on the trip (if it is an email address)
+            if email_the_contact(trip):
+                emailed += 1
 
             # Send the actual alert via SNS
             message = (
@@ -79,6 +141,9 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': json.dumps({
             'message': f'Checked all trips, found {len(overdue_trips)} overdue',
-            'overdueCount': len(overdue_trips)
+            'overdueCount': len(overdue_trips),
+                        'overdueCount': len(overdue_trips),
+            'emailedContacts': emailed
+            
         })
     }
