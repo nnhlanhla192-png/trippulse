@@ -175,5 +175,6 @@ SMS alerts as well as email
 Setting up all these AWS resources through code (Infrastructure as Code) instead of manually through the console
 Author
 
-## Verification
-WTC-YC4CRFHJ
+Your verification code:
+
+WTC-Q7K2LXJT
