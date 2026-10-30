@@ -176,6 +176,9 @@ Setting up all these AWS resources through code (Infrastructure as Code) instead
 Author
 
 Your verification code:
+Your verification code:
+
+WTC-Q7K2LXJT
 
 WTC-Q7K2LXJT
 You Tube vodeo
